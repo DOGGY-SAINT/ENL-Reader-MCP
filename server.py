@@ -5,6 +5,8 @@ from pypdf import PdfReader
 from fastmcp import FastMCP
 from models import Reference
 import config
+import shutil
+import time
 
 # 1. Initialize FastMCP server
 mcp = FastMCP("EndNote Library Reader")
@@ -182,6 +184,48 @@ def read_paper(title: str) -> dict:
     finally:
         conn.close()
 
+@mcp.tool(
+    name="refresh_backup",
+    description="Manually refresh the .enl.backup file (only available when backup mode is enabled). No effect if backup mode is off. You must close EndNote before refreshing, otherwise the operation will fail due to file locking."
+)
+def refresh_backup() -> dict:
+    """
+    Manually refresh the .enl.backup file (only available when backup mode is enabled).
+    Returns:
+        dict: {status, message, timestamp, filesize}
+    """
+    if not getattr(config, 'USE_BACKUP', False):
+        return {
+            "status": "skipped",
+            "message": "Backup mode is not enabled. Cannot refresh .enl.backup. Please use the --use-backup option.",
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "filesize": None
+        }
+    src = config.ENL_FILE_PATH[:-7]  # remove .backup
+    dst = config.ENL_FILE_PATH
+    try:
+        shutil.copy2(src, dst)
+        size = os.path.getsize(dst)
+        msg = f".enl.backup refreshed successfully, size {size} bytes."
+        if config.ENABLE_LOG:
+            print(f"[TOOL] refresh_backup: {msg}")
+        return {
+            "status": "success",
+            "message": msg,
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "filesize": size
+        }
+    except Exception as e:
+        err = f"Failed to refresh .enl.backup: {e}"
+        if config.ENABLE_LOG:
+            print(f"[TOOL] refresh_backup: {err}")
+        return {
+            "status": "error",
+            "message": err,
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "filesize": None
+        }
+
 # 4. Start the server
 if __name__ == "__main__":
     config.parse_args()
@@ -189,7 +233,8 @@ if __name__ == "__main__":
     registered_tools = [
         "list_papers(offset: int = 0, limit: int = 10)",
         "search_papers(query: str)",
-        "read_paper(title: str)"
+        "read_paper(title: str)",
+        "refresh_backup()"
     ]
     if config.ENABLE_LOG:
         print("[LOG] EndNote MCP Server is starting...")
